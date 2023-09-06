@@ -352,10 +352,9 @@ mod subject_alt_names {
         assert!(names.collect::<Vec<_>>().is_empty());
     }
 
-    // This test reproduces (part of)
-    // https://github.com/rustls/webpki/issues/167 --- an end-entity cert where
-    // the common name is a `PrintableString` rather than a `UTF8String` cannot
-    // iterate over its subject alternative names.
+    // This test reproduces https://github.com/rustls/webpki/issues/167 --- an
+    // end-entity cert where the common name is a `PrintableString` rather than
+    // a `UTF8String` cannot iterate over its subject alternative names.
     #[test]
     pub fn printable_string_common_name() {
         const DNS_NAME: &str = "test.example.com";
@@ -366,6 +365,8 @@ mod subject_alt_names {
 
         let ee_cert_der = {
             let mut params = rcgen::CertificateParams::new(vec![DNS_NAME.to_string()]);
+            // construct a certificate that uses `PrintableString` as the
+            // common name value, rather than `UTF8String`.
             params.distinguished_name.push(
                 rcgen::DnType::CommonName,
                 rcgen::DnValue::PrintableString("example.com".to_string()),
@@ -374,13 +375,21 @@ mod subject_alt_names {
             params.alg = alg;
             let cert = rcgen::Certificate::from_params(params)
                 .expect("failed to make ee cert (this is a test bug)");
-            let der = cert
-                .serialize_der_with_signer(&issuer)
-                .expect("failed to serialize signed ee cert (this is a test bug)");
-            der
+            cert.serialize_der_with_signer(&issuer)
+                .expect("failed to serialize signed ee cert (this is a test bug)")
         };
 
-        expect_cert_dns_names(&ee_cert_derd, &[DNS_NAME]);
+        expect_cert_dns_names(&ee_cert_der, &[DNS_NAME]);
+    }
+
+    // This test reproduces https://github.com/rustls/webpki/issues/167 --- an
+    // end-entity cert where the common name is an empty SEQUENCE.
+    #[test]
+    pub fn empty_sequence_common_name() {
+        // handcrafted cert DER produced using `ascii2der`, since `rcgen` is
+        // unwilling to generate this particular weird cert.
+        let ee_cert_der = include_bytes!("misc/empty_sequence_common_name.der");
+        expect_cert_dns_names(ee_cert_der, &["example.com"]);
     }
 
     fn mk_issuer(alg: &'static rcgen::SignatureAlgorithm) -> rcgen::Certificate {

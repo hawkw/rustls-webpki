@@ -1004,4 +1004,58 @@ mod tests {
     fn path_too_long() {
         assert_eq!(build_linear_chain(7), Err(Error::MaximumPathDepthExceeded));
     }
+
+    // This test reproduces (part of)
+    // https://github.com/rustls/webpki/issues/167 --- an end-entity cert where
+    // the common name is a `PrintableString` rather than a `UTF8String` cannot
+    // iterate over its subject alternative names.
+    #[test]
+    #[cfg(feature = "alloc")]
+    fn printable_string_common_name() {
+        use crate::EndEntityCert;
+
+        const DNS_NAME: &str = "test.example.com";
+
+        let alg = &rcgen::PKCS_ECDSA_P256_SHA256;
+
+        let issuer = {
+            let mut params = rcgen::CertificateParams::new(Vec::new());
+            params
+                .distinguished_name
+                .push(rcgen::DnType::OrganizationName, "Test".to_string());
+            params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+            params.key_usages = vec![
+                rcgen::KeyUsagePurpose::KeyCertSign,
+                rcgen::KeyUsagePurpose::DigitalSignature,
+                rcgen::KeyUsagePurpose::CrlSign,
+            ];
+            params.alg = alg;
+            rcgen::Certificate::from_params(params)
+                .expect("failed to make issuer cert (this is a test bug)")
+        };
+
+        let ee_cert_der = {
+            let mut params = rcgen::CertificateParams::new(vec![DNS_NAME.to_string()]);
+            params.distinguished_name.push(
+                rcgen::DnType::CommonName,
+                rcgen::DnValue::PrintableString("example.com".to_string()),
+            );
+            params.is_ca = rcgen::IsCa::ExplicitNoCa;
+            params.alg = alg;
+            let cert = rcgen::Certificate::from_params(params)
+                .expect("failed to make ee cert (this is a test bug)");
+            let der = cert
+                .serialize_der_with_signer(&issuer)
+                .expect("failed to serialize signed ee cert (this is a test bug)");
+            CertificateDer::from(der)
+        };
+
+        let ee_cert = EndEntityCert::try_from(&ee_cert_der).expect("ee cert should parse");
+        let mut dns_names = ee_cert
+            .dns_names()
+            .expect("`ee_cert.dns_names()` should return `Ok`");
+        let mut next_name = || -> Option<&str> { dns_names.next().map(Into::into) };
+        assert_eq!(next_name(), Some(DNS_NAME));
+        assert_eq!(next_name(), None);
+    }
 }

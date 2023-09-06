@@ -262,117 +262,164 @@ fn time_constructor() {
 }
 
 #[cfg(feature = "alloc")]
-#[test]
-pub fn list_netflix_names() {
-    let ee = include_bytes!("netflix/ee.der");
+mod subject_alt_names {
+    use super::*;
 
-    expect_cert_dns_names(
-        ee,
-        &[
-            "account.netflix.com",
-            "ca.netflix.com",
-            "netflix.ca",
-            "netflix.com",
-            "signup.netflix.com",
-            "www.netflix.ca",
-            "www1.netflix.com",
-            "www2.netflix.com",
-            "www3.netflix.com",
-            "develop-stage.netflix.com",
-            "release-stage.netflix.com",
-            "www.netflix.com",
-        ],
-    );
-}
+    #[test]
+    pub fn list_netflix_names() {
+        let ee = include_bytes!("netflix/ee.der");
 
-#[cfg(feature = "alloc")]
-#[test]
-pub fn invalid_subject_alt_names() {
-    // same as netflix ee certificate, but with the last name in the list
-    // changed to 'www.netflix:com'
-    let data = include_bytes!("misc/invalid_subject_alternative_name.der");
+        expect_cert_dns_names(
+            ee,
+            &[
+                "account.netflix.com",
+                "ca.netflix.com",
+                "netflix.ca",
+                "netflix.com",
+                "signup.netflix.com",
+                "www.netflix.ca",
+                "www1.netflix.com",
+                "www2.netflix.com",
+                "www3.netflix.com",
+                "develop-stage.netflix.com",
+                "release-stage.netflix.com",
+                "www.netflix.com",
+            ],
+        );
+    }
 
-    expect_cert_dns_names(
-        data,
-        &[
-            "account.netflix.com",
-            "ca.netflix.com",
-            "netflix.ca",
-            "netflix.com",
-            "signup.netflix.com",
-            "www.netflix.ca",
-            "www1.netflix.com",
-            "www2.netflix.com",
-            "www3.netflix.com",
-            "develop-stage.netflix.com",
-            "release-stage.netflix.com",
-            // NOT 'www.netflix:com'
-        ],
-    );
-}
+    #[test]
+    pub fn invalid_subject_alt_names() {
+        // same as netflix ee certificate, but with the last name in the list
+        // changed to 'www.netflix:com'
+        let data = include_bytes!("misc/invalid_subject_alternative_name.der");
 
-#[cfg(feature = "alloc")]
-#[test]
-pub fn wildcard_subject_alternative_names() {
-    // same as netflix ee certificate, but with the last name in the list
-    // changed to 'ww*.netflix:com'
-    let data = include_bytes!("misc/dns_names_and_wildcards.der");
+        expect_cert_dns_names(
+            data,
+            &[
+                "account.netflix.com",
+                "ca.netflix.com",
+                "netflix.ca",
+                "netflix.com",
+                "signup.netflix.com",
+                "www.netflix.ca",
+                "www1.netflix.com",
+                "www2.netflix.com",
+                "www3.netflix.com",
+                "develop-stage.netflix.com",
+                "release-stage.netflix.com",
+                // NOT 'www.netflix:com'
+            ],
+        );
+    }
 
-    expect_cert_dns_names(
-        data,
-        &[
-            "account.netflix.com",
-            "*.netflix.com",
-            "netflix.ca",
-            "netflix.com",
-            "signup.netflix.com",
-            "www.netflix.ca",
-            "www1.netflix.com",
-            "www2.netflix.com",
-            "www3.netflix.com",
-            "develop-stage.netflix.com",
-            "release-stage.netflix.com",
-            "www.netflix.com",
-        ],
-    );
-}
+    #[test]
+    pub fn wildcard_subject_alternative_names() {
+        // same as netflix ee certificate, but with the last name in the list
+        // changed to 'ww*.netflix:com'
+        let data = include_bytes!("misc/dns_names_and_wildcards.der");
 
-#[cfg(feature = "alloc")]
-fn expect_cert_dns_names(data: &[u8], expected_names: &[&str]) {
-    use std::collections::HashSet;
+        expect_cert_dns_names(
+            data,
+            &[
+                "account.netflix.com",
+                "*.netflix.com",
+                "netflix.ca",
+                "netflix.com",
+                "signup.netflix.com",
+                "www.netflix.ca",
+                "www1.netflix.com",
+                "www2.netflix.com",
+                "www3.netflix.com",
+                "develop-stage.netflix.com",
+                "release-stage.netflix.com",
+                "www.netflix.com",
+            ],
+        );
+    }
 
-    let der = CertificateDer::from(data);
-    let cert = webpki::EndEntityCert::try_from(&der)
-        .expect("should parse end entity certificate correctly");
+    #[test]
+    pub fn no_subject_alt_names() {
+        let ee = CertificateDer::from(&include_bytes!("misc/no_subject_alternative_name.der")[..]);
 
-    let expected_names: HashSet<_> = expected_names.iter().cloned().collect();
+        let cert = webpki::EndEntityCert::try_from(&ee)
+            .expect("should parse end entity certificate correctly");
 
-    let mut actual_names = cert
-        .dns_names()
-        .expect("should get all DNS names correctly for end entity cert")
-        .collect::<Vec<_>>();
+        let names = cert
+            .dns_names()
+            .expect("we should get a result even without subjectAltNames");
 
-    // Ensure that converting the list to a set doesn't throw away
-    // any duplicates that aren't supposed to be there
-    assert_eq!(actual_names.len(), expected_names.len());
+        assert!(names.collect::<Vec<_>>().is_empty());
+    }
 
-    let actual_names: std::collections::HashSet<&str> =
-        actual_names.drain(..).map(|name| name.into()).collect();
+    // This test reproduces (part of)
+    // https://github.com/rustls/webpki/issues/167 --- an end-entity cert where
+    // the common name is a `PrintableString` rather than a `UTF8String` cannot
+    // iterate over its subject alternative names.
+    #[test]
+    pub fn printable_string_common_name() {
+        const DNS_NAME: &str = "test.example.com";
 
-    assert_eq!(actual_names, expected_names);
-}
+        let alg = &rcgen::PKCS_ECDSA_P256_SHA256;
 
-#[cfg(feature = "alloc")]
-#[test]
-pub fn no_subject_alt_names() {
-    let ee = CertificateDer::from(&include_bytes!("misc/no_subject_alternative_name.der")[..]);
+        let issuer = mk_issuer(alg);
 
-    let cert = webpki::EndEntityCert::try_from(&ee)
-        .expect("should parse end entity certificate correctly");
+        let ee_cert_der = {
+            let mut params = rcgen::CertificateParams::new(vec![DNS_NAME.to_string()]);
+            params.distinguished_name.push(
+                rcgen::DnType::CommonName,
+                rcgen::DnValue::PrintableString("example.com".to_string()),
+            );
+            params.is_ca = rcgen::IsCa::ExplicitNoCa;
+            params.alg = alg;
+            let cert = rcgen::Certificate::from_params(params)
+                .expect("failed to make ee cert (this is a test bug)");
+            let der = cert
+                .serialize_der_with_signer(&issuer)
+                .expect("failed to serialize signed ee cert (this is a test bug)");
+            der
+        };
 
-    let names = cert
-        .dns_names()
-        .expect("we should get a result even without subjectAltNames");
+        expect_cert_dns_names(&ee_cert_derd, &[DNS_NAME]);
+    }
 
-    assert!(names.collect::<Vec<_>>().is_empty());
+    fn mk_issuer(alg: &'static rcgen::SignatureAlgorithm) -> rcgen::Certificate {
+        let mut params = rcgen::CertificateParams::new(Vec::new());
+        params
+            .distinguished_name
+            .push(rcgen::DnType::OrganizationName, "Test".to_string());
+        params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+        params.key_usages = vec![
+            rcgen::KeyUsagePurpose::KeyCertSign,
+            rcgen::KeyUsagePurpose::DigitalSignature,
+            rcgen::KeyUsagePurpose::CrlSign,
+        ];
+        params.alg = alg;
+        rcgen::Certificate::from_params(params)
+            .expect("failed to make issuer cert (this is a test bug)")
+    }
+
+    fn expect_cert_dns_names(data: &[u8], expected_names: &[&str]) {
+        use std::collections::HashSet;
+
+        let der = CertificateDer::from(data);
+        let cert = webpki::EndEntityCert::try_from(&der)
+            .expect("should parse end entity certificate correctly");
+
+        let expected_names: HashSet<_> = expected_names.iter().cloned().collect();
+
+        let mut actual_names = cert
+            .dns_names()
+            .expect("should get all DNS names correctly for end entity cert")
+            .collect::<Vec<_>>();
+
+        // Ensure that converting the list to a set doesn't throw away
+        // any duplicates that aren't supposed to be there
+        assert_eq!(actual_names.len(), expected_names.len());
+
+        let actual_names: std::collections::HashSet<&str> =
+            actual_names.drain(..).map(|name| name.into()).collect();
+
+        assert_eq!(actual_names, expected_names);
+    }
 }
